@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>HPQ-AKE Simulation (Browser-based)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    h1 { margin-bottom: 10px; }
+    .container { max-width: 900px; margin: auto; }
+    canvas { margin-top: 30px; }
+    button { padding: 10px 20px; font-size: 16px; }
+    pre { background: #f5f5f5; padding: 15px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>HPQ-AKE Simulation (Client-Side)</h1>
+  <p>This page simulates the performance evaluation of HPQ-AKE directly in the browser.
+     All computations are protocol-level cost models equivalent to the Python simulation.</p>
+
+  <button onclick="runSimulation()">Run Simulation</button>
+
+  <canvas id="latencyChart"></canvas>
+  <canvas id="overheadChart"></canvas>
+
+  <h3>Numerical Results</h3>
+  <pre id="output"></pre>
+</div>
+
+<script>
+// =============================
+// Parameters (ms / bytes)
+// =============================
+const NUM_RUNS = 500;
+const T_KYBER = 1.8;
+const T_DILITHIUM = 6.4;
+const T_RSA = 1.2;
+const T_SYM = 0.15;
+
+const SIZE_KYBER_CT = 1088;
+const SIZE_KYBER_PK = 1184;
+const SIZE_DILITHIUM_SIG = 2700;
+const SIZE_RSA_CT = 256;
+const SIZE_SYM_TAG = 64;
+
+function normalNoise() {
+  let u = 0, v = 0;
+  while(u === 0) u = Math.random();
+  while(v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v) * 0.05;
+}
+
+const schemes = {
+  "Kyber-only": () => ({ latency: 2*T_KYBER, overhead: SIZE_KYBER_CT+SIZE_KYBER_PK }),
+  "Kyber + Dilithium": () => ({ latency: 2*T_KYBER+T_DILITHIUM, overhead: SIZE_KYBER_CT+SIZE_KYBER_PK+SIZE_DILITHIUM_SIG }),
+  "Hybrid RSA–Kyber": () => ({ latency: 2*T_KYBER+T_RSA, overhead: SIZE_KYBER_CT+SIZE_KYBER_PK+SIZE_RSA_CT }),
+  "HPQ-AKE": () => ({ latency: 2*T_KYBER+T_RSA+T_SYM, overhead: SIZE_KYBER_CT+SIZE_KYBER_PK+SIZE_RSA_CT+SIZE_SYM_TAG })
+};
+
+let latencyChart, overheadChart;
+
+function runSimulation() {
+  const latencies = {};
+  const overheads = {};
+
+  for (const name in schemes) {
+    let lsum = 0;
+    let osum = 0;
+    for (let i = 0; i < NUM_RUNS; i++) {
+      const r = schemes[name]();
+      lsum += r.latency + normalNoise();
+      osum += r.overhead;
+    }
+    latencies[name] = lsum / NUM_RUNS;
+    overheads[name] = osum / NUM_RUNS;
+  }
+
+  renderCharts(latencies, overheads);
+  renderText(latencies, overheads);
+}
+
+function renderCharts(lat, ov) {
+  const labels = Object.keys(lat);
+
+  if (latencyChart) latencyChart.destroy();
+  latencyChart = new Chart(document.getElementById('latencyChart'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Handshake Latency (ms)',
+        data: labels.map(k => lat[k])
+      }]
+    }
+  });
+
+  if (overheadChart) overheadChart.destroy();
+  overheadChart = new Chart(document.getElementById('overheadChart'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Communication Overhead (bytes)',
+        data: labels.map(k => ov[k])
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: 'Bytes'
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderText(lat, ov) {
+  let txt = '=== Simulation Results Summary ===\n';
+  for (const k in lat) {
+    txt += `${k.padEnd(20)} | Latency = ${lat[k].toFixed(2)} ms | Overhead = ${ov[k].toFixed(0)} bytes\n`;
+  }
+  document.getElementById('output').innerText = txt;
+}
+</script>
+</body>
+</html>
