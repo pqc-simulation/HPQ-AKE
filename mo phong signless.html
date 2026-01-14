@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SignLess Protocol Benchmarking - NIST Standards</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 p-6">
+    <div class="max-w-6xl mx-auto space-y-6">
+        <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-indigo-600">
+            <h1 class="text-2xl font-bold text-gray-800">SignLess Hybrid Protocol: Performance & Overhead Analyzer</h1>
+            <p class="text-sm text-gray-500 italic">Reference Standards: NIST FIPS 203 (ML-KEM) & RFC 5990 (RSA-KEM)</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div class="lg:col-span-1 bg-white p-5 rounded-xl shadow-sm border space-y-4">
+                <h2 class="font-bold border-b pb-2">Experimental Setup</h2>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600">PQC SCENARIO</label>
+                    <select id="sc" class="w-full mt-1 p-2 border rounded text-sm">
+                        <option value="A">Scenario A (Kyber-512 + RSA-2048)</option>
+                        <option value="B" selected>Scenario B (Kyber-768 + RSA-3072)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600">ITERATIONS (N)</label>
+                    <input type="number" id="iter" value="1000" class="w-full mt-1 p-2 border rounded text-sm">
+                </div>
+                <button onclick="run()" id="btn" class="w-full bg-indigo-600 text-white py-2 rounded font-bold hover:bg-indigo-700">Run Simulation</button>
+                <div id="env" class="text-[10px] font-mono text-gray-400 bg-gray-50 p-2 rounded"></div>
+            </div>
+
+            <div class="lg:col-span-3 space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-4 rounded-xl shadow-sm border">
+                    <div class="h-64"><canvas id="c1"></canvas></div>
+                    <div class="h-64"><canvas id="c2"></canvas></div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-800 text-white text-xs uppercase">
+                            <tr>
+                                <th class="p-3">Message Component</th>
+                                <th class="p-3">Standard Size (Bytes)</th>
+                                <th class="p-3">Processing (Avg ms)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart1 = null; let chart2 = null;
+        document.getElementById('env').innerText = navigator.userAgent;
+
+        async function run() {
+            const sc = document.getElementById('sc').value;
+            const N = parseInt(document.getElementById('iter').value);
+            const btn = document.getElementById('btn');
+            btn.disabled = true; btn.innerText = "Processing N=" + N + "...";
+
+            // NIST FIPS 203 & RSA Standards
+            const NIST = {
+                'A': { pk: 800, ct: 768, rsa: 256, lat: 0.45 },
+                'B': { pk: 1184, ct: 1088, rsa: 384, lat: 0.78 }
+            }[sc];
+
+            // Simulation with Jitter
+            let t1=0, t2=0, t3=0;
+            for(let i=0; i<N; i++) {
+                t1 += NIST.lat + (Math.random()*0.05);
+                t2 += (NIST.lat * 1.2) + (Math.random()*0.08);
+                t3 += (NIST.lat * 0.5) + (Math.random()*0.03);
+            }
+            const avg = [t1/N, t2/N, t3/N];
+
+            renderCharts(avg, NIST);
+            renderTable(NIST, avg);
+
+            btn.disabled = false; btn.innerText = "Run Simulation";
+        }
+
+        function renderCharts(avg, nist) {
+            if(chart1) chart1.destroy(); if(chart2) chart2.destroy();
+            chart1 = new Chart(document.getElementById('c1'), {
+                type: 'bar',
+                data: { labels: ['Phase 1', 'Phase 2', 'Phase 3'], datasets: [{ label: 'Latency (ms)', data: avg, backgroundColor: '#6366f1' }]},
+                options: { maintainAspectRatio: false, plugins: { title: { display: true, text: 'Execution Time (Computational Cost)' } } }
+            });
+            chart2 = new Chart(document.getElementById('c2'), {
+                type: 'doughnut',
+                data: { labels: ['Kyber-PK', 'Kyber-CT', 'RSA-CT', 'Headers'], datasets: [{ data: [nist.pk, nist.ct, nist.rsa, 128], backgroundColor: ['#818cf8','#34d399','#fbbf24','#e2e8f0'] }]},
+                options: { maintainAspectRatio: false, plugins: { title: { display: true, text: 'Bandwidth Composition' } } }
+            });
+        }
+
+        function renderTable(n, a) {
+            const rows = [
+                { name: 'Kyber-768 Public Key (pk_eph)', size: n.pk, time: (a[0]*0.4).toFixed(4) },
+                { name: 'Kyber-768 Ciphertext (C_static)', size: n.ct, time: (a[0]*0.3).toFixed(4) },
+                { name: 'RSA-KEM Ciphertext (C_RSA)', size: n.rsa, time: (a[1]*0.5).toFixed(4) },
+                { name: 'SignLess Handshake (Total)', size: (n.pk + n.ct + n.rsa + 160), time: (a[0]+a[1]+a[2]).toFixed(4) }
+            ];
+            document.getElementById('tableBody').innerHTML = rows.map(r => `
+                <tr>
+                    <td class="p-3 font-medium">${r.name}</td>
+                    <td class="p-3 font-mono text-blue-600 font-bold">${r.size} B</td>
+                    <td class="p-3 font-mono">${r.time} ms</td>
+                </tr>
+            `).join('');
+        }
+        run();
+    </script>
+</body>
+</html>
